@@ -1,0 +1,13 @@
+# Data (quá lớn, đã có trên Kaggle)
+train/
+public_test/
+private_test/
+*.wav
+
+# Outputs
+submission*.jsonl
+__pycache__/
+*.pyc
+
+# Misc
+.DS_Store
