@@ -6,6 +6,8 @@ private_test/
 
 # Outputs
 submission*.jsonl
+sft_*.jsonl
+test*.jsonl
 __pycache__/
 *.pyc
 
