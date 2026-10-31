@@ -15,7 +15,7 @@ from pathlib import Path
 
 MODEL_ID = "Qwen/Qwen3-4B"
 MAX_STEPS = 8
-MAX_GEN = 512
+MAX_GEN = 1024
 MAX_TIME = 25
 RESULT_CAP = 600
 
@@ -231,7 +231,7 @@ def load_model(model_id, think=True):
 
     tok = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
     model = AutoModelForCausalLM.from_pretrained(
-        model_id, torch_dtype=torch.float16,
+        model_id, dtype=torch.float16,
         device_map="auto", trust_remote_code=True,
     )
     model.eval()
