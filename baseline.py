@@ -231,18 +231,18 @@ def _apply(tok, msgs, think):
 
 def load_model(model_id, think=True, lora=None):
     import torch
-    from transformers import AutoTokenizer, AutoModelForCausalLM
+    from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 
     tok = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
+    bnb = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.float16)
     model = AutoModelForCausalLM.from_pretrained(
-        model_id, dtype=torch.float16,
+        model_id, quantization_config=bnb,
         device_map="auto", trust_remote_code=True,
     )
     if lora:
         from peft import PeftModel
         model = PeftModel.from_pretrained(model, lora)
-        model = model.merge_and_unload()
-        print(f"LoRA merged from {lora}")
+        print(f"LoRA loaded from {lora}")
     model.eval()
     print(f"Model loaded: {model_id} ({sum(p.numel() for p in model.parameters())/1e9:.2f}B params)")
 

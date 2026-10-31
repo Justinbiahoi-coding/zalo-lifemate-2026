@@ -77,7 +77,6 @@ def main():
             num_train_epochs=a.epochs,
             learning_rate=a.lr,
             lr_scheduler_type="cosine",
-            warmup_ratio=0.05,
             fp16=not is_bfloat16_supported(),
             bf16=is_bfloat16_supported(),
             logging_steps=10,
