@@ -229,7 +229,7 @@ def _apply(tok, msgs, think):
     return tok.apply_chat_template(msgs, **kw)
 
 
-def load_model(model_id, think=True):
+def load_model(model_id, think=True, lora=None):
     import torch
     from transformers import AutoTokenizer, AutoModelForCausalLM
 
@@ -238,6 +238,11 @@ def load_model(model_id, think=True):
         model_id, dtype=torch.float16,
         device_map="auto", trust_remote_code=True,
     )
+    if lora:
+        from peft import PeftModel
+        model = PeftModel.from_pretrained(model, lora)
+        model = model.merge_and_unload()
+        print(f"LoRA merged from {lora}")
     model.eval()
     print(f"Model loaded: {model_id} ({sum(p.numel() for p in model.parameters())/1e9:.2f}B params)")
 
@@ -264,6 +269,7 @@ def main():
     ap.add_argument("--out", type=Path, default=Path("submission_baseline.jsonl"))
     ap.add_argument("--model", default=MODEL_ID)
     ap.add_argument("--no-think", action="store_true")
+    ap.add_argument("--lora", type=Path, help="LoRA adapter path")
     ap.add_argument("--score", action="store_true", help="chấm điểm sau khi xong")
     a = ap.parse_args()
 
@@ -285,7 +291,8 @@ def main():
         samples = samples[: a.limit]
     print(f"{len(samples)} samples loaded")
 
-    gen = load_model(a.model, think=not a.no_think)
+    gen = load_model(a.model, think=not a.no_think,
+                     lora=str(a.lora) if a.lora else None)
 
     sys.path.insert(0, str(a.root / a.split))
     from zaic_tools import ToolEnv
