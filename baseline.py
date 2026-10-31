@@ -146,20 +146,24 @@ def build_messages(item, catalog):
 
 def parse_calls(text):
     clean = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+    clean = re.sub(r"<\|[^|]*\|>", "", clean)  # strip special tokens
     calls = []
-    for m in re.finditer(r"CALL:\s*(\{.*?\})\s*$", clean, re.MULTILINE):
-        s = re.sub(r",\s*([}\]])", r"\1", m.group(1))  # trailing comma
-        try:
-            obj = json.loads(s)
-            if "name" in obj:
-                calls.append({"name": obj["name"],
-                              "arguments": obj.get("arguments", {})})
-        except json.JSONDecodeError:
-            pass
+    for line in clean.split("\n"):
+        line = line.strip()
+        if line.startswith("CALL:"):
+            s = line[5:].strip()
+            s = re.sub(r",\s*([}\]])", r"\1", s)  # trailing comma
+            try:
+                obj = json.loads(s)
+                if "name" in obj:
+                    calls.append({"name": obj["name"],
+                                  "arguments": obj.get("arguments", {})})
+            except json.JSONDecodeError:
+                pass
     if calls:
         return calls
     # fallback: Qwen3 native <tool_call> tags
-    for m in re.finditer(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", clean, re.DOTALL):
+    for m in re.finditer(r"<tool_call>\s*(.*?)\s*</tool_call>", clean, re.DOTALL):
         s = re.sub(r",\s*([}\]])", r"\1", m.group(1))
         try:
             obj = json.loads(s)
