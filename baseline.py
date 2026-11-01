@@ -198,15 +198,19 @@ def react_loop(gen_fn, messages, env):
         if not calls:
             break
 
-        messages.append({"role": "assistant", "content": resp})
-
-        parts = []
+        valid_calls = []
         for c in calls:
             val = env.validate(c["name"], c.get("arguments", {}))
             if val.get("ok", False):
-                res = env.call(c["name"], c.get("arguments", {}))
-            else:
-                res = val
+                valid_calls.append(c)
+        if not valid_calls:
+            break
+
+        messages.append({"role": "assistant", "content": resp})
+
+        parts = []
+        for c in valid_calls:
+            res = env.call(c["name"], c.get("arguments", {}))
             parts.append(f"{c['name']} → {cap_result(res)}")
 
         messages.append({
