@@ -120,7 +120,16 @@ Xong hoặc ngoài phạm vi → DONE (không CALL).
 5. Tối thiểu call cần thiết."""
 
 
-def build_messages(item, catalog):
+def _get_text(item_or_turn, root=None, asr_fn=None):
+    if "audio_text" in item_or_turn:
+        return item_or_turn["audio_text"]
+    if asr_fn and "audio" in item_or_turn:
+        path = str(root / item_or_turn["audio"]) if root else item_or_turn["audio"]
+        return asr_fn(path)
+    return ""
+
+
+def build_messages(item, catalog, root=None, asr_fn=None):
     ctx = item["context"]
     up = ctx["user_profile"]
     schema = build_schema_text(catalog, ctx["installed_apps"])
@@ -134,12 +143,13 @@ def build_messages(item, catalog):
 
     for turn in (item.get("history") or []):
         if turn["role"] == "user":
-            msgs.append({"role": "user", "content": turn.get("audio_text", "")})
+            msgs.append({"role": "user", "content": _get_text(turn, root, asr_fn)})
         elif turn["role"] == "assistant":
             msgs.append({"role": "assistant", "content": turn.get("text", "")})
 
     from vn_normalize import normalize as vn_norm
-    user_text = vn_norm(item["audio_text"], ctx.get("current_time"))
+    raw = _get_text(item, root, asr_fn)
+    user_text = vn_norm(raw, ctx.get("current_time"))
     msgs.append({"role": "user", "content": user_text})
     return msgs
 
@@ -277,6 +287,7 @@ def main():
     ap.add_argument("--no-think", action="store_true")
     ap.add_argument("--lora", type=Path, help="LoRA adapter path")
     ap.add_argument("--score", action="store_true", help="chấm điểm sau khi xong")
+    ap.add_argument("--asr", action="store_true", help="load PhoWhisper for audio→text")
     a = ap.parse_args()
 
     catalog = json.loads((a.root / a.split / f"{a.split}_tools_catalog.json")
@@ -297,10 +308,17 @@ def main():
         samples = samples[: a.limit]
     print(f"{len(samples)} samples loaded")
 
+    asr_fn = None
+    if a.asr:
+        import asr as asr_mod
+        asr_mod.load()
+        asr_fn = asr_mod.transcribe
+
     gen = load_model(a.model, think=not a.no_think,
                      lora=str(a.lora) if a.lora else None)
 
-    sys.path.insert(0, str(a.root / a.split))
+    split_root = a.root / a.split
+    sys.path.insert(0, str(split_root))
     from zaic_tools import ToolEnv
 
     t0 = time.time()
@@ -308,7 +326,7 @@ def main():
         for i, item in enumerate(samples):
             ts = time.time()
             env = ToolEnv(a.split, item["id"], root=a.root)
-            msgs = build_messages(item, catalog)
+            msgs = build_messages(item, catalog, root=split_root, asr_fn=asr_fn)
             tc, sh = react_loop(gen, msgs, env)
 
             fout.write(json.dumps({"id": item["id"], "tool_calls": tc,
