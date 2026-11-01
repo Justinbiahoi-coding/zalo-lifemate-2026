@@ -138,7 +138,9 @@ def build_messages(item, catalog):
         elif turn["role"] == "assistant":
             msgs.append({"role": "assistant", "content": turn.get("text", "")})
 
-    msgs.append({"role": "user", "content": item["audio_text"]})
+    from vn_normalize import normalize as vn_norm
+    user_text = vn_norm(item["audio_text"], ctx.get("current_time"))
+    msgs.append({"role": "user", "content": user_text})
     return msgs
 
 
