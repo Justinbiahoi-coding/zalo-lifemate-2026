@@ -146,8 +146,8 @@ def sample_to_messages(item, catalog, xref_map, fuzzy_map):
     groups = group_calls(tc, tr, xref_map, fuzzy_map)
     for i, grp in enumerate(groups):
         msgs.append({"role": "assistant", "content": _fmt_calls(grp)})
-        if i < len(groups) - 1:
-            msgs.append({"role": "user", "content": _fmt_results(grp)})
+        msgs.append({"role": "user", "content": _fmt_results(grp)})
+    msgs.append({"role": "assistant", "content": "DONE"})
     return msgs
 
 
