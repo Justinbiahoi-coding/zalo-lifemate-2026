@@ -15,8 +15,8 @@ from pathlib import Path
 
 MODEL_ID = "Qwen/Qwen3-4B"
 MAX_STEPS = 8
-MAX_GEN = 1024
-MAX_TIME = 25
+MAX_GEN = 320      # longest real CALL turn is ~149 tok; cap bounds runaway prose
+BUDGET = 27        # per-sample wall clock incl. ASR; hard limit is 30s
 RESULT_CAP = 600
 
 TYPE_MAP = {"string": "str", "integer": "int", "number": "num", "boolean": "bool"}
@@ -127,19 +127,29 @@ def fmt_call_lines(calls):
     ) or "DONE"
 
 
-def _get_text(item_or_turn, root=None, asr_fn=None):
-    if "audio_text" in item_or_turn:
-        return item_or_turn["audio_text"]
-    if asr_fn and "audio" in item_or_turn:
-        path = str(root / item_or_turn["audio"]) if root else item_or_turn["audio"]
-        return asr_fn(path)
-    return ""
+def _transcribe_all(item, root, asr_fn):
+    """One batched ASR call for every clip of the sample. {id(turn): text}.
+
+    With --asr, transcribe even when gold audio_text exists: that is what makes
+    the dev score comparable to public_test, where no transcript is given.
+    """
+    turns = [t for t in (item.get("history") or []) if t["role"] == "user"] + [item]
+    need = [t for t in turns if "audio" in t]
+    if not need or asr_fn is None:
+        return {}
+    paths = [str(root / t["audio"]) if root else t["audio"] for t in need]
+    return {id(t): txt for t, txt in zip(need, asr_fn(paths))}
+
+
+def _get_text(turn, texts):
+    return texts.get(id(turn)) or turn.get("audio_text", "")
 
 
 def build_messages(item, catalog, root=None, asr_fn=None):
     ctx = item["context"]
     up = ctx["user_profile"]
     schema = build_schema_text(catalog, ctx["installed_apps"])
+    texts = _transcribe_all(item, root, asr_fn)
 
     msgs = [{"role": "system", "content": _SYS.format(
         name=up["name"], home=up["home_address"], work=up["work_address"],
@@ -150,14 +160,13 @@ def build_messages(item, catalog, root=None, asr_fn=None):
 
     for turn in (item.get("history") or []):
         if turn["role"] == "user":
-            msgs.append({"role": "user", "content": _get_text(turn, root, asr_fn)})
+            msgs.append({"role": "user", "content": _get_text(turn, texts)})
         elif turn["role"] == "assistant":
             msgs.append({"role": "assistant",
                          "content": fmt_call_lines(turn.get("tool_calls") or [])})
 
     from vn_normalize import normalize as vn_norm
-    raw = _get_text(item, root, asr_fn)
-    user_text = vn_norm(raw, ctx.get("current_time"))
+    user_text = vn_norm(_get_text(item, texts), ctx.get("current_time"))
     msgs.append({"role": "user", "content": user_text})
     return msgs
 
@@ -207,10 +216,9 @@ def cap_result(result, limit=RESULT_CAP):
 
 # ── react loop ───────────────────────────────────────────────────
 
-def react_loop(gen_fn, messages, env):
-    t0 = time.time()
+def react_loop(gen_fn, messages, env, deadline=None):
     for _ in range(MAX_STEPS):
-        if time.time() - t0 > MAX_TIME:
+        if deadline and time.time() > deadline:
             break
 
         resp = gen_fn(messages)
@@ -335,7 +343,7 @@ def main():
             ts = time.time()
             env = ToolEnv(a.split, item["id"], root=a.root)
             msgs = build_messages(item, catalog, root=split_root, asr_fn=asr_fn)
-            tc, sh = react_loop(gen, msgs, env)
+            tc, sh = react_loop(gen, msgs, env, deadline=ts + BUDGET)
 
             fout.write(json.dumps({"id": item["id"], "tool_calls": tc,
                                    "state_hash": sh}, ensure_ascii=False) + "\n")
