@@ -21,7 +21,9 @@ def main():
     ap.add_argument("--bs", type=int, default=2)
     ap.add_argument("--ga", type=int, default=8)
     ap.add_argument("--lr", type=float, default=2e-4)
-    ap.add_argument("--seq-len", type=int, default=3072)
+    # Only truncates; the collator pads to the longest sample in each batch, so
+    # lowering this saves nothing and silently cuts the CALL targets off the end.
+    ap.add_argument("--seq-len", type=int, default=4096)
     ap.add_argument("--r", type=int, default=32)
     a = ap.parse_args()
 
