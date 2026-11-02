@@ -146,8 +146,8 @@ def sample_to_messages(item, catalog, xref_map, fuzzy_map):
     groups = group_calls(tc, tr, xref_map, fuzzy_map)
     for i, grp in enumerate(groups):
         msgs.append({"role": "assistant", "content": _fmt_calls(grp)})
-        msgs.append({"role": "user", "content": _fmt_results(grp)})
-    msgs.append({"role": "assistant", "content": "DONE"})
+        if i < len(groups) - 1:
+            msgs.append({"role": "user", "content": _fmt_results(grp)})
     return msgs
 
 
@@ -180,22 +180,26 @@ def main():
 
     print(f"{len(samples)} samples")
 
+    oos_repeat = 3
     stats = {"total": 0, "oos": 0, "groups": {}}
     with open(a.out, "w", encoding="utf-8") as fout:
         for s in samples:
             msgs = sample_to_messages(s, catalog, xref_map, fuzzy_map)
-            fout.write(json.dumps({"messages": msgs}, ensure_ascii=False) + "\n")
-            stats["total"] += 1
             tc = s["label"]["tool_calls"]
-            if not tc:
+            is_oos = not tc
+            reps = oos_repeat if is_oos else 1
+            for _ in range(reps):
+                fout.write(json.dumps({"messages": msgs}, ensure_ascii=False) + "\n")
+                stats["total"] += 1
+            if is_oos:
                 stats["oos"] += 1
             else:
                 tr = s["label"]["tool_results"]
                 ng = len(group_calls(tc, tr, xref_map, fuzzy_map))
                 stats["groups"][ng] = stats["groups"].get(ng, 0) + 1
 
-    print(f"→ {a.out}  ({stats['total']} conversations)")
-    print(f"  OOS: {stats['oos']}")
+    print(f"→ {a.out}  ({stats['total']} conversations, OOS×{oos_repeat})")
+    print(f"  OOS: {stats['oos']} (×{oos_repeat} = {stats['oos']*oos_repeat} in data)")
     print(f"  Groups distribution: {dict(sorted(stats['groups'].items()))}")
 
     try:
