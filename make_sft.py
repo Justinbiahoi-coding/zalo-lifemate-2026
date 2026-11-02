@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import argparse, json, re, sys
 from pathlib import Path
-from baseline import compress_tool, build_schema_text, _SYS, cap_result
+from baseline import compress_tool, build_schema_text, _SYS, cap_result, fmt_call_lines
 
 
 def _build_xref(catalog):
@@ -100,11 +100,7 @@ def group_calls(tool_calls, tool_results, xref_map, fuzzy_map):
 
 
 def _fmt_calls(pairs):
-    lines = []
-    for c, _ in pairs:
-        obj = {"name": c["name"], "arguments": c.get("arguments", {})}
-        lines.append(f'CALL: {json.dumps(obj, ensure_ascii=False)}')
-    return "\n".join(lines)
+    return fmt_call_lines([c for c, _ in pairs])
 
 
 def _fmt_results(pairs):
@@ -114,7 +110,7 @@ def _fmt_results(pairs):
     return "[Kết quả tool]\n" + "\n".join(parts) + "\n\nTiếp tục."
 
 
-def sample_to_messages(item, catalog, xref_map, fuzzy_map):
+def sample_to_messages(item, catalog, xref_map, fuzzy_map, done_frac=0.3, rng=None):
     ctx = item["context"]
     up = ctx["user_profile"]
     schema = build_schema_text(catalog, ctx["installed_apps"])
@@ -130,7 +126,8 @@ def sample_to_messages(item, catalog, xref_map, fuzzy_map):
         if turn["role"] == "user":
             msgs.append({"role": "user", "content": turn.get("audio_text", "")})
         elif turn["role"] == "assistant":
-            msgs.append({"role": "assistant", "content": turn.get("text", "")})
+            msgs.append({"role": "assistant",
+                         "content": fmt_call_lines(turn.get("tool_calls") or [])})
 
     from vn_normalize import normalize as vn_norm
     user_text = vn_norm(item["audio_text"], ctx.get("current_time"))
@@ -148,6 +145,12 @@ def sample_to_messages(item, catalog, xref_map, fuzzy_map):
         msgs.append({"role": "assistant", "content": _fmt_calls(grp)})
         if i < len(groups) - 1:
             msgs.append({"role": "user", "content": _fmt_results(grp)})
+
+    # Terminal "stop" turn. Single-group samples outnumber multi-group ~2:1, so
+    # adding it everywhere biases greedy decoding to stop after the first results.
+    if len(groups) > 1 or (rng and rng.random() < done_frac):
+        msgs.append({"role": "user", "content": _fmt_results(groups[-1])})
+        msgs.append({"role": "assistant", "content": "DONE"})
     return msgs
 
 
@@ -157,7 +160,12 @@ def main():
     ap.add_argument("--split", default="train")
     ap.add_argument("--dev", type=Path, help="split_dev.json — chỉ lấy train portion")
     ap.add_argument("--out", type=Path, default=Path("sft_train.jsonl"))
+    ap.add_argument("--done-frac", type=float, default=0.3,
+                    help="fraction of single-group samples that get a terminal DONE turn")
     a = ap.parse_args()
+
+    import random
+    rng = random.Random(42)
 
     catalog = json.loads(
         (a.root / a.split / f"{a.split}_tools_catalog.json").read_text("utf-8")
@@ -181,10 +189,11 @@ def main():
     print(f"{len(samples)} samples")
 
     oos_repeat = 3
-    stats = {"total": 0, "oos": 0, "groups": {}}
+    stats = {"total": 0, "oos": 0, "groups": {}, "stop": 0, "cont": 0}
     with open(a.out, "w", encoding="utf-8") as fout:
         for s in samples:
-            msgs = sample_to_messages(s, catalog, xref_map, fuzzy_map)
+            msgs = sample_to_messages(s, catalog, xref_map, fuzzy_map,
+                                      done_frac=a.done_frac, rng=rng)
             tc = s["label"]["tool_calls"]
             is_oos = not tc
             reps = oos_repeat if is_oos else 1
@@ -197,10 +206,14 @@ def main():
                 tr = s["label"]["tool_results"]
                 ng = len(group_calls(tc, tr, xref_map, fuzzy_map))
                 stats["groups"][ng] = stats["groups"].get(ng, 0) + 1
+                stats["cont"] += ng - 1
+                stats["stop"] += msgs[-1]["content"] == "DONE"
 
     print(f"→ {a.out}  ({stats['total']} conversations, OOS×{oos_repeat})")
     print(f"  OOS: {stats['oos']} (×{oos_repeat} = {stats['oos']*oos_repeat} in data)")
     print(f"  Groups distribution: {dict(sorted(stats['groups'].items()))}")
+    print(f"  Termination balance: stop={stats['stop']} continue={stats['cont']} "
+          f"({stats['stop']/max(stats['cont'],1):.2f}:1)")
 
     try:
         from transformers import AutoTokenizer

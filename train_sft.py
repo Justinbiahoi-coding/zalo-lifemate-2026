@@ -21,7 +21,7 @@ def main():
     ap.add_argument("--bs", type=int, default=2)
     ap.add_argument("--ga", type=int, default=8)
     ap.add_argument("--lr", type=float, default=2e-4)
-    ap.add_argument("--seq-len", type=int, default=4096)
+    ap.add_argument("--seq-len", type=int, default=3072)
     ap.add_argument("--r", type=int, default=32)
     a = ap.parse_args()
 
@@ -80,6 +80,7 @@ def main():
             fp16=not is_bfloat16_supported(),
             bf16=is_bfloat16_supported(),
             logging_steps=10,
+            group_by_length=True,  # mean seq 1612 vs max 2828 — cuts padding waste
             save_strategy="epoch",
             output_dir=str(a.out),
             seed=42,

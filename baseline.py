@@ -120,6 +120,13 @@ Xong hoặc ngoài phạm vi → DONE (không CALL).
 5. Tối thiểu call cần thiết."""
 
 
+def fmt_call_lines(calls):
+    return "\n".join(
+        f'CALL: {json.dumps({"name": c["name"], "arguments": c.get("arguments", {})}, ensure_ascii=False)}'
+        for c in calls
+    ) or "DONE"
+
+
 def _get_text(item_or_turn, root=None, asr_fn=None):
     if "audio_text" in item_or_turn:
         return item_or_turn["audio_text"]
@@ -145,7 +152,8 @@ def build_messages(item, catalog, root=None, asr_fn=None):
         if turn["role"] == "user":
             msgs.append({"role": "user", "content": _get_text(turn, root, asr_fn)})
         elif turn["role"] == "assistant":
-            msgs.append({"role": "assistant", "content": turn.get("text", "")})
+            msgs.append({"role": "assistant",
+                         "content": fmt_call_lines(turn.get("tool_calls") or [])})
 
     from vn_normalize import normalize as vn_norm
     raw = _get_text(item, root, asr_fn)

@@ -79,15 +79,13 @@ def main():
 
     rng = random.Random(a.seed)
     out = []
+    # Anonymize every sample, OOS included: deciding "no installed app can do this"
+    # under renamed apps is exactly the schema-reading skill we want. Uniform copies
+    # also preserve the OOS/termination ratios make_sft.py balanced.
     for row in rows:
         out.append(row)
-        msgs = row["messages"]
-        has_calls = any("CALL:" in m.get("content", "") for m in msgs)
-        if has_calls and a.copies > 0:
-            for c in range(a.copies):
-                seed = rng.randint(0, 2**31)
-                anon_msgs = anonymize(msgs, seed)
-                out.append({"messages": anon_msgs})
+        for _ in range(a.copies):
+            out.append({"messages": anonymize(row["messages"], rng.randint(0, 2**31))})
 
     rng2 = random.Random(a.seed + 1)
     rng2.shuffle(out)
