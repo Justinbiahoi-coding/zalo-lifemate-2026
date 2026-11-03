@@ -11,9 +11,11 @@ def load(model_id="vinai/PhoWhisper-small"):
     global _model, _proc
     from transformers import AutoProcessor, AutoModelForSpeechSeq2Seq
     _proc = AutoProcessor.from_pretrained(model_id)
-    _model = AutoModelForSpeechSeq2Seq.from_pretrained(
-        model_id, torch_dtype=torch.float16
-    ).to("cuda")
+    try:  # transformers 5 renamed torch_dtype -> dtype
+        _model = AutoModelForSpeechSeq2Seq.from_pretrained(model_id, dtype=torch.float16)
+    except TypeError:
+        _model = AutoModelForSpeechSeq2Seq.from_pretrained(model_id, torch_dtype=torch.float16)
+    _model = _model.to("cuda")
     _model.eval()
     print(f"ASR loaded: {model_id} ({sum(p.numel() for p in _model.parameters())/1e6:.0f}M params)")
 

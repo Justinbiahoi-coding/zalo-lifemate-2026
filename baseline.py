@@ -351,12 +351,22 @@ def main():
     with open(a.out, "w", encoding="utf-8") as fout:
         for i, item in enumerate(samples):
             ts = time.time()
-            env = ToolEnv(a.split, item["id"], root=a.root)
-            msgs = build_messages(item, catalog, root=split_root, asr_fn=asr_fn)
-            tc, sh = react_loop(gen, msgs, env, deadline=ts + BUDGET)
+            env = None
+            try:
+                env = ToolEnv(a.split, item["id"], root=a.root)
+                msgs = build_messages(item, catalog, root=split_root, asr_fn=asr_fn)
+                tc, sh = react_loop(gen, msgs, env, deadline=ts + BUDGET)
+            except Exception as e:
+                # One bad clip must not kill a 600-sample run after training.
+                print(f"  [{i + 1}/{len(samples)}] {item['id']}: "
+                      f"LỖI {type(e).__name__}: {e}")
+                if env is None:
+                    env = ToolEnv(a.split, item["id"], root=a.root)
+                tc, sh = env.get_tool_calls(), env.get_state_hash()
 
             fout.write(json.dumps({"id": item["id"], "tool_calls": tc,
                                    "state_hash": sh}, ensure_ascii=False) + "\n")
+            fout.flush()
             print(f"  [{i + 1}/{len(samples)}] {item['id']}: "
                   f"{len(tc)} calls, {time.time() - ts:.1f}s")
 
