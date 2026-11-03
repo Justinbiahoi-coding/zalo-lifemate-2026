@@ -8,7 +8,7 @@ Kaggle T4 (16GB VRAM), ~2-3h for 3 epochs on 1198 samples.
 """
 from __future__ import annotations
 
-import argparse, json
+import argparse, inspect, json
 from pathlib import Path
 
 
@@ -65,30 +65,60 @@ def main():
 
     from trl import SFTTrainer
     from transformers import TrainingArguments
+    try:
+        from trl import SFTConfig
+    except ImportError:
+        SFTConfig = None
 
-    trainer = SFTTrainer(
-        model=model,
-        tokenizer=tokenizer,
-        train_dataset=dataset,
-        dataset_text_field="text",
-        max_seq_length=a.seq_len,
-        packing=False,
-        args=TrainingArguments(
-            per_device_train_batch_size=a.bs,
-            gradient_accumulation_steps=a.ga,
-            num_train_epochs=a.epochs,
-            learning_rate=a.lr,
-            lr_scheduler_type="cosine",
-            fp16=not is_bfloat16_supported(),
-            bf16=is_bfloat16_supported(),
-            logging_steps=10,
-            group_by_length=True,  # mean seq 1612 vs max 2828 — cuts padding waste
-            save_strategy="epoch",
-            output_dir=str(a.out),
-            seed=42,
-            optim="adamw_8bit",
-        ),
+    # transformers 5.x removes legacy fields one release at a time (warmup_ratio,
+    # group_by_length, ...) and TRL moves seq-len options into SFTConfig. Pass
+    # only what the installed versions actually accept instead of crashing.
+    args_cls = SFTConfig or TrainingArguments
+    ta = dict(
+        per_device_train_batch_size=a.bs,
+        gradient_accumulation_steps=a.ga,
+        num_train_epochs=a.epochs,
+        learning_rate=a.lr,
+        lr_scheduler_type="cosine",
+        fp16=not is_bfloat16_supported(),
+        bf16=is_bfloat16_supported(),
+        logging_steps=10,
+        group_by_length=True,  # mean seq 1612 vs max 2828 — cuts padding waste
+        save_strategy="epoch",
+        output_dir=str(a.out),
+        seed=42,
+        optim="adamw_8bit",
     )
+    sig = inspect.signature(args_cls.__init__).parameters
+    ta_params = set(sig)
+    accepts_any = any(p.kind is inspect.Parameter.VAR_KEYWORD for p in sig.values())
+    for k in ("max_length", "max_seq_length"):
+        if k in ta_params:
+            ta[k] = a.seq_len
+            break
+    if "dataset_text_field" in ta_params:
+        ta["dataset_text_field"] = "text"
+    dropped = [] if accepts_any else sorted(set(ta) - ta_params)
+    if not accepts_any:
+        ta = {k: v for k, v in ta.items() if k in ta_params}
+    if dropped:
+        print(f"bỏ qua tham số {args_cls.__name__} không hỗ trợ: {dropped}")
+    training_args = args_cls(**ta)
+
+    tr_params = set(inspect.signature(SFTTrainer.__init__).parameters)
+    trainer_kw = {"model": model, "args": training_args, "train_dataset": dataset}
+    if "processing_class" in tr_params:
+        trainer_kw["processing_class"] = tokenizer
+    elif "tokenizer" in tr_params:
+        trainer_kw["tokenizer"] = tokenizer
+    if "packing" in tr_params:
+        trainer_kw["packing"] = False
+    if SFTConfig is None:  # old TRL keeps these on the trainer, not the config
+        if "dataset_text_field" in tr_params:
+            trainer_kw["dataset_text_field"] = "text"
+        if "max_seq_length" in tr_params:
+            trainer_kw["max_seq_length"] = a.seq_len
+    trainer = SFTTrainer(**trainer_kw)
 
     # Loss only on assistant turns
     from unsloth.chat_templates import train_on_responses_only
