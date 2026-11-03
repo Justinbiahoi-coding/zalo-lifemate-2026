@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import argparse, json, re, sys
 from pathlib import Path
-from baseline import compress_tool, build_schema_text, _SYS, cap_result, fmt_call_lines
+from baseline import (compress_tool, build_schema_text, _SYS, cap_result,
+                      fmt_call_lines, default_root)
 
 
 def _build_xref(catalog):
@@ -156,13 +157,16 @@ def sample_to_messages(item, catalog, xref_map, fuzzy_map, done_frac=0.3, rng=No
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--root", type=Path, default=Path("."))
+    ap.add_argument("--root", type=Path, default=None)
     ap.add_argument("--split", default="train")
     ap.add_argument("--dev", type=Path, help="split_dev.json — chỉ lấy train portion")
     ap.add_argument("--out", type=Path, default=Path("sft_train.jsonl"))
     ap.add_argument("--done-frac", type=float, default=0.3,
                     help="fraction of single-group samples that get a terminal DONE turn")
     a = ap.parse_args()
+    if a.root is None:
+        a.root = default_root()
+    print(f"root = {a.root}")
 
     import random
     rng = random.Random(42)

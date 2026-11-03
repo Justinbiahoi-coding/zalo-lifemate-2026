@@ -10,8 +10,15 @@ Kaggle T4:
 """
 from __future__ import annotations
 
-import argparse, copy, json, re, sys, time
+import argparse, copy, glob, json, os, re, sys, time
 from pathlib import Path
+
+
+def default_root():
+    """Dataset root, found by locating the catalog — the /kaggle/input path
+    embeds the dataset owner's username, so it cannot be hardcoded."""
+    hits = glob.glob("/kaggle/input/**/train/train_tools_catalog.json", recursive=True)
+    return Path(os.path.dirname(os.path.dirname(hits[0]))) if hits else Path(".")
 
 MODEL_ID = "Qwen/Qwen3-4B"
 MAX_STEPS = 8
@@ -294,7 +301,7 @@ def load_model(model_id, think=True, lora=None):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--root", type=Path, default=Path("."))
+    ap.add_argument("--root", type=Path, default=None)
     ap.add_argument("--split", default="train")
     ap.add_argument("--dev", type=Path, help="split_dev.json — chỉ chạy dev set")
     ap.add_argument("--limit", type=int)
@@ -305,6 +312,9 @@ def main():
     ap.add_argument("--score", action="store_true", help="chấm điểm sau khi xong")
     ap.add_argument("--asr", action="store_true", help="load PhoWhisper for audio→text")
     a = ap.parse_args()
+    if a.root is None:
+        a.root = default_root()
+    print(f"root = {a.root}")
 
     catalog = json.loads((a.root / a.split / f"{a.split}_tools_catalog.json")
                          .read_text(encoding="utf-8"))
